@@ -1,0 +1,22 @@
+services:
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main-slim
+    ports:
+      - "3067:8080"
+    environment:
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+    volumes:
+      - ./data/webui:/app/backend/data
+
+  mcp:
+    build:
+      context: ./mcp-server
+    ports:
+      - "3068:8080"
+    environment:
+      LISTEN_ADDR: ":8080"
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL}
+      OAUTH_ISSUER_URL: ${POCKET_ID_ISSUER_URL}
+      OAUTH_JWKS_URL: ${POCKET_ID_JWKS_URL}
+      OAUTH_REQUIRED_SCOPES: ${MCP_OAUTH_SCOPES:-notes:read notes:write}
+      OAUTH_SIGNING_ALGS: ${POCKET_ID_SIGNING_ALGS:-RS256}
