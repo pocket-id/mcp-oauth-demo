@@ -1,53 +1,42 @@
 # Pocket ID OAuth MCP demo
 
-With [Pocket ID](https://github.com/pocket-id/pocket-id), you can protect your MCP server with OAuth 2.1 and OpenID Connect. This demo shows how quickly OAuth can be added to an MCP server with Pocket ID.
+This demo runs [Pocket ID](https://github.com/pocket-id/pocket-id) and an OAuth-protected MCP server with Docker Compose. Two [Cloudflare quick tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) provide temporary public HTTPS URLs for Pocket ID and the MCP server.
 
-The Docker Compose stack contains:
+The MCP server provides the following tools:
 
-- **Open WebUI**, available at <http://localhost:3067>.
-- **Demo Notes MCP**, a small Go server available inside Docker at `http://mcp:8080/mcp`.
+- `list_notes` returns the notes for the authenticated user. It requires the `notes:read` scope.
+- `add_note` adds a note for the authenticated user. It requires the `notes:write` scope.
+- `clear_notes` removes all notes for the authenticated user. It requires the `notes:write` scope.
 
-You will create a temporary Pocket ID instance at [demo.pocket-id.org](https://demo.pocket-id.org). The instance is available for 1 hour and is deleted automatically afterward.
+## Before you begin
 
-The MCP server exposes three tools:
+You need the following software:
 
-- `add_note` stores a note for the authenticated user.
-- `list_notes` lists only that user's notes.
-- `clear_notes` deletes only that user's notes.
+- Docker with Docker Compose
+- [Claude Desktop](https://claude.ai/desktop) or [Claude Code](https://claude.ai/code)
 
-Notes exist only in memory and disappear when the MCP container restarts. Notes are separated by the OAuth access token's `sub` claim, which makes it easy to demonstrate that two Pocket ID users do not see each other's data.
+## Run the demo
 
-## What the demo proves
+### 1. Start the tunnels
 
-During the demo:
+The demo needs public HTTPS URLs for Pocket ID so we use Cloudflare tunnels.
 
-1. Open WebUI discovers the MCP server's OAuth metadata.
-2. Open WebUI redirects the user to the temporary Pocket ID instance.
-3. Pocket ID asks the user to approve `notes:read` and `notes:write`.
-4. Pocket ID issues an access token for the MCP resource `http://mcp:8080/mcp`.
-5. The MCP server verifies the token's signature, issuer, audience, expiry, subject, and scopes before running a tool.
+Start the Cloudflare tunnel containers:
 
-## Prerequisites
+```sh
+docker compose up -d pocket-id-tunnel mcp-tunnel
+```
 
-You need:
+The tunnel containers generate new public URLs when they start. Get the URLs from the container logs:
 
-- Docker with Docker Compose.
-- 1 hour to complete the demo before the temporary Pocket ID instance expires. No worries, with Pocket ID it's so easy that you don't even need 30 minutes.
+```sh
+echo "Pocket ID URL:"
+docker compose logs pocket-id-tunnel | grep -oE 'https://[^ ]+\.trycloudflare\.com'
+echo "MCP URL:"
+docker compose logs mcp-tunnel | grep -oE 'https://[^ ]+\.trycloudflare\.com'
+```
 
-## Step 1: Create a temporary Pocket ID instance
-
-1. Open [demo.pocket-id.org](https://demo.pocket-id.org).
-2. Click **Start Demo**.
-3. Complete the Pocket ID setup and register your passkey.
-4. Copy the instance's base URL without `/setup`. For example:
-
-   ```text
-   https://<demo-id>.demo.pocket-id.org
-   ```
-
-This guide calls that value `<POCKET_ID_URL>`.
-
-## Step 2: Prepare the demo environment
+### 2. Configure the services
 
 Copy the example environment file:
 
@@ -55,137 +44,114 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-and replace both occurrences of `replace-with-your-demo-id` with the ID from your Pocket ID demo URL.
+... and replace the placeholders with the public URLs from the tunnel logs. The file should look like this:
 
-## Step 3: Start Open WebUI and the MCP server
+```dotenv
+POCKET_ID_URL=https://<pocket-id-tunnel>.trycloudflare.com
+MCP_URL=https://<mcp-tunnel>.trycloudflare.com/mcp
+POCKET_ID_ENCRYPTION_KEY=<generated-encryption-key>
+```
 
-Build and start the stack:
+Start Pocket ID and the MCP server:
 
 ```sh
-docker compose up --build -d
+docker compose up -d
 ```
 
-Check that both services are running:
+### 3. Configure Pocket ID
+
+1. Open `<POCKET_ID_URL>/setup`.
+2. Create the administrator account and register a passkey.
+3. Open **Administration → APIs**.
+4. Select **Add API**.
+5. Configure the API:
+
+   | Field        | Value                                             |
+   | ------------ | ------------------------------------------------- |
+   | Name         | `Notes MCP Server`                                |
+   | API resource | The exact `MCP_URL` from `.env`, including `/mcp` |
+
+6. Add the following API permissions:
+
+   | Key           | Name                |
+   | ------------- | ------------------- |
+   | `notes:read`  | `Read your notes`   |
+   | `notes:write` | `Manage your notes` |
+
+7. In the **Access** card, select **Metadata document clients**.
+8. Enable **Allow all metadata document clients**.
+9. Select `notes:read` and `notes:write`.
+10. Select **Save**.
+
+The Compose configuration allows the Claude Code and Claude Desktop client metadata URLs through Pocket ID's `CIMD_URL_ALLOWLIST`. You do not need to create an OIDC client, a client secret, or a client-access rule.
+
+### 4. Connect Claude Code
+
+Add the MCP server and start the sign-in flow:
 
 ```sh
-docker compose ps
+claude mcp add --transport http demo <MCP_URL>
+claude mcp login demo
 ```
 
-Open <http://localhost:3067> and create the initial Open WebUI account if this is the first run. The first account becomes the administrator.
+Replace `<MCP_URL>` with the complete value from `.env`.
 
-## Step 4: Register the MCP API in Pocket ID
-
-Return to your `<POCKET_ID_URL>` tab and sign in as the administrator.
-
-1. Open **Settings → Administration → APIs**.
-2. Click **Add API**.
-3. Enter:
-
-   | Field        | Value                 |
-   | ------------ | --------------------- |
-   | Name         | `Demo Notes MCP`      |
-   | API resource | `http://mcp:8080/mcp` |
-
-4. Save the API.
-5. In the API's **API permissions** section, add these two permissions:
-
-   | Key           | Name          | Suggested description                               |
-   | ------------- | ------------- | --------------------------------------------------- |
-   | `notes:read`  | `Read notes`  | `Read the signed-in user's demo notes`              |
-   | `notes:write` | `Write notes` | `Create and delete the signed-in user's demo notes` |
-
-6. Save the permissions.
-
-The API resource must be exactly `http://mcp:8080/mcp`. Although `mcp` is a Docker-internal hostname, this value is an OAuth audience identifier. Pocket ID does not need to connect to it.
-
-## Step 5: Register Open WebUI as an OIDC client
-
-The Open WebUI tool-server ID used in this guide is `notes`. Open WebUI includes that ID in its OAuth callback URL, so configure the callback exactly as shown below.
-
-1. In Pocket ID, open **Settings → Administration → OIDC Clients**.
-2. Click **Add OIDC Client**.
-3. Enter:
-
-   | Field        | Value                                                    |
-   | ------------ | -------------------------------------------------------- |
-   | Name         | `Open WebUI MCP`                                         |
-   | Callback URL | `http://localhost:3067/oauth/clients/mcp:notes/callback` |
-
-4. Save the client.
-5. Copy its **Client ID** and **Client Secret**. You will enter both in Open WebUI.
-6. Open the client's **API Access** tab.
-7. Find `Demo Notes MCP` and click **Edit**.
-8. Under **User-delegated access**, select both:
-   - `notes:read`
-   - `notes:write`
-9. Leave **Client access** unselected. This demo acts on behalf of a signed-in user and does not use the client-credentials grant.
-10. Save the API access settings.
-
-## Step 6: Add the MCP server to Open WebUI
-
-Open Open WebUI at <http://localhost:3067> and sign in as its administrator.
-
-1. Open **Admin Panel → Integrations**.
-2. Add a new **External Tool Server**.
-3. Click **OpenAPI** to switch to the MCP tool type.
-4. Configure the general fields:
-
-   | Field | Value                 |
-   | ----- | --------------------- |
-   | ID    | `notes`               |
-   | Name  | `OAuth Notes Demo`    |
-   | URL   | `http://mcp:8080/mcp` |
-
-5. Configure authentication:
-
-   | Field                    | Value                                                                      |
-   | ------------------------ | -------------------------------------------------------------------------- |
-   | Authentication           | `OAuth 2.1 (Static)`                                                       |
-   | Client ID                | Client ID copied from Pocket ID                                            |
-   | Client Secret            | Client secret copied from Pocket ID                                        |
-   | OAuth Server URL         | Your `<POCKET_ID_URL>`, for example `https://<demo-id>.demo.pocket-id.org` |
-   | OAuth Resource Parameter | `Automatic`                                                                |
-   | OAuth Scopes             | `Use discovered scopes`                                                    |
-
-6. Click **Register Client**.
-7. Save the external-tool connection.
-
-Do not change the Open WebUI ID from `notes` after registering the client. If you use another ID, replace `notes` in the Pocket ID callback URL with that ID before authorizing.
-
-## Step 7: Authorize and use the tool
-
-OAuth MCP tools must be enabled interactively before the model calls them.
-
-1. Start a new chat in Open WebUI.
-2. Use the **Integrations** icon in the chat input.
-3. Click **Tools** and enable `OAuth Notes Demo`.
-4. Open WebUI redirects you to your temporary Pocket ID instance.
-5. Sign in and approve the requested `notes:read` and `notes:write` permissions.
-6. Pocket ID redirects you to Open WebUI.
-
-Try these prompts in order:
+After you sign in through Pocket ID, test the connection with the following prompt:
 
 ```text
-Use the notes tool to remember that the Pocket ID OAuth demo works.
+Add a note that says the Pocket ID OAuth demo works.
 ```
+
+### 5. Connect Claude Desktop
+
+1. Open Claude Desktop.
+2. Go to **Settings → Connectors**.
+3. Select **Add → Add custom connector**.
+4. Enter a name and the complete `MCP_URL` from `.env`.
+5. Select **Add**.
+6. Select **Connect**, and then sign in through Pocket ID.
+
+Test the connection with the following prompt:
 
 ```text
-List all of my demo notes.
+Add a note that says the Pocket ID OAuth demo works.
 ```
 
-```text
-Clear all of my demo notes.
+## Stop the demo
+
+Stop the containers:
+
+```sh
+docker compose down
 ```
 
-The model should use `add_note`, `list_notes`, and `clear_notes` respectively.
+Cloudflare assigns new tunnel URLs the next time the tunnel containers are created. If the URLs change, update `.env` and the API resource in Pocket ID before restarting the services.
 
-## Step 8: Demonstrate user isolation
+## Add authentication to your MCP server
 
-For a more visible OAuth demonstration:
+Setting up an OAuth 2.0 provider is often complex and time-consuming. We built Pocket ID because authentication should not be the hard part of building an MCP server or APIs. We can confidently say that Pocket ID is the easiest OAuth 2.0 provider to set up and use.
 
-1. Authorize the tool as one Pocket ID user and add a note.
-2. Sign in to Open WebUI as a different user.
-3. Enable the MCP tool and authorize through Pocket ID as the second user.
-4. List the notes.
+### Deploy Pocket ID
 
-The second user receives an empty list because the MCP server stores notes separately for each OAuth subject.
+Setting up Pocket ID is easy. In fact, you have just set up your own instance. For production, deploy it on a server and place a reverse proxy in front of it.
+
+Follow the [Pocket ID installation guide](https://pocket-id.org/docs/setup/installation) for the production setup.
+
+### What do you need to do in your MCP server?
+
+The short version is: verify the JWT.
+
+Pocket ID issues JWT access tokens to clients such as Claude Code. The clients use these tokens to authenticate to your MCP server.
+
+Use a maintained JWT or OpenID Connect library to validate each token. You can find a Go implementation in [`mcp-server/auth.go`](mcp-server/auth.go). Your library must perform the following checks:
+
+1. Verify the token signature with a key from Pocket ID's JWKS endpoint at `/.well-known/jwks.json`.
+2. Allow only the configured signing algorithms.
+3. Verify that the `iss` claim matches the Pocket ID URL.
+4. Verify that the `aud` claim matches the MCP resource URL.
+5. Verify that the token has not expired.
+6. Require a non-empty `sub` claim.
+
+Configure the library with the Pocket ID issuer, the MCP resource URL, and the Pocket ID JWKS endpoint. Do not implement JWT parsing or signature verification yourself. There is a library for that.
+
+Inside your tools, check the `scope` claim before performing an action. This demo requires `notes:read` for `list_notes` and `notes:write` for `add_note` and `clear_notes`. See [`mcp-server/scopes.go`](mcp-server/scopes.go) for the scope checks.

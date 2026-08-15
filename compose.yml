@@ -1,22 +1,33 @@
 services:
-  openwebui:
-    image: ghcr.io/open-webui/open-webui:main-slim
-    ports:
-      - "3067:8080"
+  pocket-id-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://pocket-id:1411
+    restart: unless-stopped
+
+  mcp-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://mcp:8080
+    restart: unless-stopped
+
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2
     environment:
-      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+      APP_URL: ${POCKET_ID_URL}
+      ENCRYPTION_KEY: replace-me-in-production
+      TRUSTED_PLATFORM: CF-Connecting-IP
+      UI_CONFIG_DISABLED: true
+      CIMD_URL_ALLOWLIST: ${CIMD_URL_ALLOWLIST}
     volumes:
-      - ./data/webui:/app/backend/data
+      - pocket-id-data:/app/data
 
   mcp:
     build:
-      context: ./mcp-server
-    ports:
-      - "3068:8080"
+      context: .
+      dockerfile: mcp-server/Dockerfile
     environment:
-      LISTEN_ADDR: ":8080"
-      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL}
-      OAUTH_ISSUER_URL: ${POCKET_ID_ISSUER_URL}
-      OAUTH_JWKS_URL: ${POCKET_ID_JWKS_URL}
-      OAUTH_REQUIRED_SCOPES: ${MCP_OAUTH_SCOPES:-notes:read notes:write}
-      OAUTH_SIGNING_ALGS: ${POCKET_ID_SIGNING_ALGS:-RS256}
+      MCP_RESOURCE_URL: ${MCP_URL:-http://localhost:8080/mcp}
+      OAUTH_ISSUER_URL: ${POCKET_ID_URL:-http://localhost:1411}
+      OAUTH_JWKS_URL: http://pocket-id:1411/.well-known/jwks.json
+
+volumes:
+  pocket-id-data:

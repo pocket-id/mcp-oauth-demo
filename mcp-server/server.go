@@ -52,8 +52,7 @@ func newHTTPHandler(cfg config, verifier auth.TokenVerifier, store *noteStore) h
 	)
 	protectedMCPHandler := auth.RequireBearerToken(verifier, &auth.RequireBearerTokenOptions{
 		ResourceMetadataURL: resourceMetadataURL(cfg.ResourceURL),
-		Scopes:              cfg.RequiredScopes,
-	})(mcpHandler)
+	})(requireToolScopes(resourceMetadataURL(cfg.ResourceURL))(mcpHandler))
 
 	mux := http.NewServeMux()
 	mux.Handle("/.well-known/oauth-protected-resource", metadataHandler)
@@ -78,7 +77,7 @@ func newMCPServer(store *noteStore) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_note",
-		Description: "Store a short note for the authenticated user. Notes are kept in memory and disappear when the server restarts.",
+		Description: "Store a short note for the authenticated user. Requires notes:write. Notes are kept in memory and disappear when the server restarts.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input addNoteInput) (*mcp.CallToolResult, addNoteOutput, error) {
 		userID, result := authenticatedUser(ctx)
 		if result != nil {
@@ -102,7 +101,7 @@ func newMCPServer(store *noteStore) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_notes",
-		Description: "List only the notes owned by the authenticated user.",
+		Description: "List only the notes owned by the authenticated user. Requires notes:read.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listNotesInput) (*mcp.CallToolResult, listNotesOutput, error) {
 		userID, result := authenticatedUser(ctx)
 		if result != nil {
@@ -113,7 +112,7 @@ func newMCPServer(store *noteStore) *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "clear_notes",
-		Description: "Delete all in-memory notes owned by the authenticated user.",
+		Description: "Delete all in-memory notes owned by the authenticated user. Requires notes:write.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ clearNotesInput) (*mcp.CallToolResult, clearNotesOutput, error) {
 		userID, result := authenticatedUser(ctx)
 		if result != nil {
