@@ -1,5 +1,8 @@
 # Pocket ID OAuth MCP demo
 
+> [!TIP]
+> See our [YouTube video](https://youtu.be/JjoXz2u5r3Y) for a walkthrough of this demo.
+
 This demo runs [Pocket ID](https://github.com/pocket-id/pocket-id) and an OAuth-protected MCP server with Docker Compose. Two [Cloudflare quick tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) provide temporary public HTTPS URLs for Pocket ID and the MCP server.
 
 The MCP server provides the following tools:
